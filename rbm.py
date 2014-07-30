@@ -27,6 +27,7 @@ class RBM(object):
         W=None, hbias=None, vbias=None, numpy_rng=None,
         theano_rng=None):
         """
+        
         RBM constructor. Defines the parameters of the model along with
         basic operations for inferring hidden from visible (and vice-versa),
         as well as for performing CD updates.
@@ -177,34 +178,23 @@ class RBM(object):
         return [pre_sigmoid_h1, h1_mean, h1_sample,
                 pre_sigmoid_v1, v1_mean, v1_sample]
 
-    def get_cost_updates(self, lr=0.1, persistent=None, k=1):
+    def get_cost_updates(self, lr=0.1, k=1):
         """This functions implements one step of CD-k or PCD-k
 
         :param lr: learning rate used to train the RBM
 
-        :param persistent: None for CD. For PCD, shared variable
-            containing old state of Gibbs chain. This must be a shared
-            variable of size (batch size, number of hidden units).
-
         :param k: number of Gibbs steps to do in CD-k/PCD-k
 
         Returns a proxy for the cost and the updates dictionary. The
-        dictionary contains the update rules for weights and biases but
-        also an update of the shared variable used to store the persistent
-        chain, if one is used.
+        dictionary contains the update rules for weights and biases.
 
         """
 
         # compute positive phase
         pre_sigmoid_ph, ph_mean, ph_sample = self.sample_h_given_v(self.input)
 
-        # decide how to initialize persistent chain:
         # for CD, we use the newly generate hidden sample
-        # for PCD, we initialize from the old state of the chain
-        if persistent is None:
-            chain_start = ph_sample
-        else:
-            chain_start = persistent
+        chain_start = ph_sample
 
         # perform actual negative phase
         # in order to implement CD-k/PCD-k we need to scan over the
@@ -235,16 +225,10 @@ class RBM(object):
             # make sure that the learning rate is of the right dtype
             updates[param] = param - gparam * T.cast(lr,
                                                     dtype=theano.config.floatX)
-        if persistent:
-            # Note that this works only if persistent is a shared variable
-            updates[persistent] = nh_samples[-1]
-            # pseudo-likelihood is a better proxy for PCD
-            monitoring_cost = self.get_pseudo_likelihood_cost(updates)
-        else:
-            # reconstruction cross-entropy is a better proxy for CD
-            monitoring_cost = self.get_reconstruction_cost(updates,
-                                                           pre_sigmoid_nvs[-1])
-
+        
+        # reconstruction cross-entropy is a better proxy for CD
+        monitoring_cost = self.get_reconstruction_cost(updates, pre_sigmoid_nvs[-1])
+        
         return monitoring_cost, updates
 
     def get_pseudo_likelihood_cost(self, updates):
@@ -341,6 +325,8 @@ def test_rbm(learning_rate=0.1, training_epochs=15,
     train_set_x, train_set_y = datasets[0]
     test_set_x, test_set_y = datasets[2]
 
+    print train_set_x.get_value(borrow=True)[0]
+
     # compute number of minibatches for training, validation and testing
     n_train_batches = train_set_x.get_value(borrow=True).shape[0] / batch_size
 
@@ -351,19 +337,12 @@ def test_rbm(learning_rate=0.1, training_epochs=15,
     rng = numpy.random.RandomState(123)
     theano_rng = RandomStreams(rng.randint(2 ** 30))
 
-    # initialize storage for the persistent chain (state = hidden
-    # layer of chain)
-    persistent_chain = theano.shared(numpy.zeros((batch_size, n_hidden),
-                                                 dtype=theano.config.floatX),
-                                     borrow=True)
-
     # construct the RBM class
     rbm = RBM(input=x, n_visible=28 * 28,
               n_hidden=n_hidden, numpy_rng=rng, theano_rng=theano_rng)
 
     # get the cost and the gradient corresponding to one step of CD-15
-    cost, updates = rbm.get_cost_updates(lr=learning_rate,
-                                         persistent=persistent_chain, k=15)
+    cost, updates = rbm.get_cost_updates(lr=learning_rate, k=15)
 
     #################################
     #     Training the RBM          #
@@ -388,7 +367,7 @@ def test_rbm(learning_rate=0.1, training_epochs=15,
 
         # go through the training set
         mean_cost = []
-        for batch_index in xrange(n_train_batches):
+        for batch_index in xrange(n_train_batches/100):
             mean_cost += [train_rbm(batch_index)]
 
         print 'Training epoch %d, cost is ' % epoch, numpy.mean(mean_cost)
