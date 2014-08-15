@@ -100,13 +100,6 @@ class RBM(object):
         # other than shared variables created in this function.
         self.params = [self.W, self.hbias, self.vbias]
 
-    def free_energy(self, v_sample):
-        ''' Function to compute the free energy '''
-        wx_b = T.dot(v_sample, self.W) + self.hbias
-        vbias_term = T.dot(v_sample, self.vbias)
-        hidden_term = T.sum(T.log(1 + T.exp(wx_b)), axis=1)
-        return -hidden_term - vbias_term
-
     def propup(self, vis):
         '''This function propagates the visible units activation upwards to
         the hidden units
@@ -179,7 +172,7 @@ class RBM(object):
                 pre_sigmoid_v1, v1_mean, v1_sample]
 
     def get_cost_updates(self, lr=0.1, k=1):
-        """This functions implements one step of CD-k or PCD-k
+        """This functions implements one step of CD-k
 
         :param lr: learning rate used to train the RBM
 
@@ -208,22 +201,17 @@ class RBM(object):
                     outputs_info=[None,  None,  None, None, None, ph_sample],
                     n_steps=k)
 
-        # determine gradients on RBM parameters
-        # not that we only need the sample at the end of the chain
         chain_end = nv_samples[-1]
+        visible_last_but_one = nv_samples[-2]
+        last_hidden =  self.sample_h_given_v(visible_last_but_one)[2]
+        w_updates = (T.dot(self.input.T, ph_sample) - T.dot(visible_last_but_one.T, last_hidden)) * T.cast(lr, dtype=theano.config.floatX)
+        h_bias_updates = ph_sample - last_hidden
+        v_bias_updates = self.input - visible_last_but_one
 
-        cost = T.mean(self.free_energy(self.input)) - T.mean(self.free_energy(chain_end))
+        updates[self.W] = self.W - w_updates 
+        updates[self.hbias] = self.hbias #- h_bias_updates
+        updates[self.vbias] = self.vbias #- v_bias_updates
 
-        # We must not compute the gradient through the gibbs sampling
-        gparams = T.grad(cost, self.params, consider_constant=[chain_end])
-
-        # constructs the update dictionary
-        for gparam, param in zip(gparams, self.params):
-            # make sure that the learning rate is of the right dtype
-            updates[param] = param - gparam * T.cast(lr,
-                                                    dtype=theano.config.floatX)
-        
-        
         return updates
 
 def test_rbm(learning_rate=0.1, training_epochs=15,
