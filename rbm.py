@@ -212,7 +212,7 @@ class RBM(object):
         # not that we only need the sample at the end of the chain
         chain_end = nv_samples[-1]
 
-        cost = self.free_energy(self.input) - self.free_energy(chain_end)
+        cost = T.mean(self.free_energy(self.input)) - T.mean(self.free_energy(chain_end))
 
         # We must not compute the gradient through the gibbs sampling
         gparams = T.grad(cost, self.params, consider_constant=[chain_end])
