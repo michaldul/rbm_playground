@@ -144,7 +144,7 @@ class LogisticRegression(object):
             raise NotImplementedError()
 
 
-def load_data(dataset):
+def load_data(dataset, binary = False):
     ''' Loads the dataset
 
     :type dataset: string
@@ -192,6 +192,10 @@ def load_data(dataset):
         variable) would lead to a large decrease in performance.
         """
         data_x, data_y = data_xy
+
+        if binary:
+            data_x = map(lambda row: map(lambda x: 0 if x < 0 else 1, row), data_x)
+
         shared_x = theano.shared(numpy.asarray(data_x,
                                                dtype=theano.config.floatX),
                                  borrow=borrow)
@@ -205,6 +209,7 @@ def load_data(dataset):
         # floats it doesn't make sense) therefore instead of returning
         # ``shared_y`` we will have to cast it to int. This little hack
         # lets ous get around this issue
+
         return shared_x, T.cast(shared_y, 'int32')
 
     test_set_x, test_set_y = shared_dataset(test_set)

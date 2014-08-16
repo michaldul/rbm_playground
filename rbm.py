@@ -236,7 +236,7 @@ def test_rbm(learning_rate=0.1, training_epochs=15,
     :param n_samples: number of samples to plot for each chain
 
     """
-    datasets = load_data(dataset)
+    datasets = load_data(dataset, True)
 
     train_set_x, train_set_y = datasets[0]
     test_set_x, test_set_y = datasets[2]
