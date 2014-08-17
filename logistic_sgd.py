@@ -194,7 +194,11 @@ def load_data(dataset, binary = False):
         data_x, data_y = data_xy
 
         if binary:
-            data_x = map(lambda row: map(lambda x: 0 if x < 0 else 1, row), data_x)
+            print "BINARY"
+            data_shape = data_x.shape
+            for r in range(0, data_shape[0]):
+                for c in range(0, data_shape[1]):
+                    data_x[r, c] = 0 if data_x[r, c] < 0 else 1
 
         shared_x = theano.shared(numpy.asarray(data_x,
                                                dtype=theano.config.floatX),
@@ -210,7 +214,7 @@ def load_data(dataset, binary = False):
         # ``shared_y`` we will have to cast it to int. This little hack
         # lets ous get around this issue
 
-        return shared_x, T.cast(shared_y, 'int32')
+        return T.cast(shared_x, 'int32'), T.cast(shared_y, 'int32')
 
     test_set_x, test_set_y = shared_dataset(test_set)
     valid_set_x, valid_set_y = shared_dataset(valid_set)
