@@ -20,6 +20,7 @@ from theano.tensor.shared_randomstreams import RandomStreams
 from utils import tile_raster_images
 from logistic_sgd import load_data
 
+from collections import OrderedDict
 
 class RBM(object):
     """Restricted Boltzmann Machine (RBM)  """
@@ -178,43 +179,23 @@ class RBM(object):
 
         :param k: number of Gibbs steps to do in CD-k
 
-        Returns a proxy for the cost and the updates dictionary. The
-        dictionary contains the update rules for weights and biases.
+        Returns the updates dictionary. The dictionary 
+        contains the update rules for weights and biases.
 
         """
-
-        # compute positive phase
         pre_sigmoid_ph, ph_mean, ph_sample = self.sample_h_given_v(self.input)
 
-        # perform actual negative phase
-        # in order to implement CD-k we need to scan over the
-        # function that implements one gibbs step k times.
-        # Read Theano tutorial on scan for more information :
-        # http://deeplearning.net/software/theano/library/scan.html
-        # the scan will return the entire Gibbs chain
-        [pre_sigmoid_nvs, nv_means, nv_samples,
-         pre_sigmoid_nhs, nh_means, nh_samples], updates = \
-            theano.scan(self.gibbs_hvh,
-                    # the None are place holders, saying that
-                    # ph_sample is the initial state corresponding to the
-                    # 6th output
-                    outputs_info=[None,  None,  None, None, None, ph_sample],
-                    n_steps=k)
+        pre_sigmoid_nv, nv_mean, nv_sample = self.sample_v_given_h(ph_sample)
 
-        chain_end = nv_samples[-1]
-        visible_last_but_one = nv_samples[-2]
-        last_hidden =  self.sample_h_given_v(visible_last_but_one)[2]
-        w_updates = (T.dot(self.input.T, ph_sample) - T.dot(visible_last_but_one.T, last_hidden)) * T.cast(lr, dtype=theano.config.floatX)
-        h_bias_updates = ph_sample - last_hidden
-        v_bias_updates = self.input - visible_last_but_one
+        pre_sig_h_neg, h_neg = self.propup(nv_mean)
 
-        updates[self.W] = self.W - w_updates 
-        updates[self.hbias] = self.hbias #- h_bias_updates
-        updates[self.vbias] = self.vbias #- v_bias_updates
+        newWeights = self.W + (T.dot(self.input.T, ph_sample) - T.dot(nv_sample.T, h_neg)) * T.cast(lr, dtype=theano.config.floatX)
+        newHbias = self.hbias + T.mean(ph_sample - h_neg, axis=0) * T.cast(lr, dtype=theano.config.floatX)
+        newVbias = self.vbias + T.mean(self.input - nv_sample, axis=0) * T.cast(lr, dtype=theano.config.floatX)
 
-        return updates
+        return OrderedDict([(self.hbias, newHbias), (self.vbias, newVbias), (self.W, newWeights)])
 
-def test_rbm(learning_rate=0.1, training_epochs=15,
+def test_rbm(learning_rate=0.02, training_epochs=20,
              dataset='mnist.pkl.gz', batch_size=20,
              n_chains=20, n_samples=10, output_folder='rbm_plots',
              n_hidden=500):
@@ -236,7 +217,7 @@ def test_rbm(learning_rate=0.1, training_epochs=15,
     :param n_samples: number of samples to plot for each chain
 
     """
-    datasets = load_data(dataset, True)
+    datasets = load_data(dataset, False)
 
     train_set_x, train_set_y = datasets[0]
     test_set_x, test_set_y = datasets[2]
