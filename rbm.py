@@ -17,8 +17,7 @@ import os
 
 from theano.tensor.shared_randomstreams import RandomStreams
 
-from utils import tile_raster_images
-from logistic_sgd import load_data
+from utils import tile_raster_images, load_data
 
 from collections import OrderedDict
 
@@ -193,7 +192,46 @@ class RBM(object):
         newHbias = self.hbias + T.mean(ph_sample - h_neg, axis=0) * T.cast(lr, dtype=theano.config.floatX)
         newVbias = self.vbias + T.mean(self.input - nv_sample, axis=0) * T.cast(lr, dtype=theano.config.floatX)
 
-        return OrderedDict([(self.hbias, newHbias), (self.vbias, newVbias), (self.W, newWeights)])
+        reconstruction_cost = self.get_reconstruction_cost(pre_sigmoid_nv)
+
+        return reconstruction_cost, OrderedDict([(self.hbias, newHbias), (self.vbias, newVbias), (self.W, newWeights)])
+
+    def get_reconstruction_cost(self, pre_sigmoid_nv):
+        """Approximation to the reconstruction error
+
+        Note that this function requires the pre-sigmoid activation as
+        input.  To understand why this is so you need to understand a
+        bit about how Theano works. Whenever you compile a Theano
+        function, the computational graph that you pass as input gets
+        optimized for speed and stability.  This is done by changing
+        several parts of the subgraphs with others.  One such
+        optimization expresses terms of the form log(sigmoid(x)) in
+        terms of softplus.  We need this optimization for the
+        cross-entropy since sigmoid of numbers larger than 30. (or
+        even less then that) turn to 1. and numbers smaller than
+        -30. turn to 0 which in terms will force theano to compute
+        log(0) and therefore we will get either -inf or NaN as
+        cost. If the value is expressed in terms of softplus we do not
+        get this undesirable behaviour. This optimization usually
+        works fine, but here we have a special case. The sigmoid is
+        applied inside the scan op, while the log is
+        outside. Therefore Theano will only see log(scan(..)) instead
+        of log(sigmoid(..)) and will not apply the wanted
+        optimization. We can not go and replace the sigmoid in scan
+        with something else also, because this only needs to be done
+        on the last step. Therefore the easiest and more efficient way
+        is to get also the pre-sigmoid activation as an output of
+        scan, and apply both the log and sigmoid outside scan such
+        that Theano can catch and optimize the expression.
+
+        """
+
+        cross_entropy = T.mean(
+                T.sum(self.input * T.log(T.nnet.sigmoid(pre_sigmoid_nv)) +
+                (1 - self.input) * T.log(1 - T.nnet.sigmoid(pre_sigmoid_nv)),
+                      axis=1))
+
+        return cross_entropy
 
 def test_rbm(learning_rate=0.02, training_epochs=20,
              dataset='mnist.pkl.gz', batch_size=20,
@@ -217,7 +255,7 @@ def test_rbm(learning_rate=0.02, training_epochs=20,
     :param n_samples: number of samples to plot for each chain
 
     """
-    datasets = load_data(dataset, False)
+    datasets = load_data(dataset)
 
     train_set_x, train_set_y = datasets[0]
     test_set_x, test_set_y = datasets[2]
@@ -237,7 +275,7 @@ def test_rbm(learning_rate=0.02, training_epochs=20,
               n_hidden=n_hidden, numpy_rng=rng, theano_rng=theano_rng)
 
     # get the gradient corresponding to one step of CD-k
-    updates = rbm.get_cost_updates(lr=learning_rate, k=15)
+    cost, updates = rbm.get_cost_updates(lr=learning_rate, k=15)
 
     #################################
     #     Training the RBM          #
@@ -248,7 +286,7 @@ def test_rbm(learning_rate=0.02, training_epochs=20,
 
     # it is ok for a theano function to have no output
     # the purpose of train_rbm is solely to update the RBM parameters
-    train_rbm = theano.function([index],
+    train_rbm = theano.function([index], cost,
            updates=updates,
            givens={x: train_set_x[index * batch_size:
                                   (index + 1) * batch_size]},
@@ -261,10 +299,11 @@ def test_rbm(learning_rate=0.02, training_epochs=20,
     for epoch in xrange(training_epochs):
 
         # go through the training set
+        mean_cost = []
         for batch_index in xrange(n_train_batches):
-            train_rbm(batch_index)
+            mean_cost += [train_rbm(batch_index)]
 
-        print 'Training epoch %d' % epoch
+        print 'Training epoch %d, cost is ' % epoch, numpy.mean(mean_cost)
 
         # Plot filters after each training epoch
         plotting_start = time.clock()
